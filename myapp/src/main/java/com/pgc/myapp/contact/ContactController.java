@@ -1,5 +1,10 @@
 package com.pgc.myapp.contact;
 
+import com.pgc.myapp.post.Post;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,23 +20,78 @@ public class ContactController {
     // 데이터베이스는 기본적으로 동시성에 대한 구현이 있음.
     Map<String, Contact> map = new ConcurrentHashMap<>();
 
+    // @Autowired : Bean 객체를 의존성 주입
+    // Bean 객체 : @Configuration 클래스에 등록된 싱글턴 클래스로 생성된 객체
+
+    // static : JVM 실행 시점에 생성됨
+    // 싱글턴 : 첫 실행시점 객체가 1번 생성됨. 이후 부터는 생성된 객체를 재 사용
+    // 메서드의 반환 타입이 싱글턴 클래스
+
+    // 스프링 프레임워크의 DATA JPA 라이브러리
+    // @Repository 인터페이스에 맞는 동적 클래스를 실행 시점에 생성하여 @Autowired 키워드가 있는 선언 변수에 주입한다.
+
+    // 의존성 주입(Dependency Injection)
+    // 객체를 사용하는 곳 외부에서 객체를 생성한 후에
+    // 객체를 사용하는 곳에 필드, 메서드 매개변수로 넣어줌
+    // @Configuration 클래스의 @Bean 클래스
+
+    // 스프링프레임워크에서는
+    // 1. @Configuration 클래스의 @Bean클래스를 생성
+    // 2. @Autowired 어노테이션 변수에 객체를 의존성 주입
+    @Autowired
+    ContactRepository repo;
+
     // GET /contacts
     @GetMapping
     public List<Contact> getContactList() {
-////        map.put("hong@naver.com", Contact.builder()
-////                .name("홍길동").phone("010-1234-5678")
-////                .email("hong@naver.com").build());
-////        map.put("kim@gmail.com", Contact.builder()
-////                .name("김철수").phone("010-9873-8382")
-////                .email("kim@gmail.com").build());
-//
-        var list = new ArrayList<>(map.values());
-//        list.sort((a, b)-> b.getId() - a.getId());
-
-//        list.sort((a, b)-> a.getName().compareTo(b.getName()));
-        list.sort(Comparator.comparing(Contact::getName));
+        // repo.finAll(); 전체 테이블 목록 조회
+        // SELECT * FROM 테이블
+        // repo.findAll(Sort sort); 정렬하여 전체 테이블 목록 조회
+        // SELECT * FROM 테이블 ORDER BY 정렬컬럼, 정렬컬럼...
+        List<Contact> list = repo.findAll(Sort.by("name").ascending());
 
         return list;
+    }
+
+    // GET /contacts/paging?page=0$size=10
+    // query-string으로 받을 것임
+    // ? 키 = 값 & 키 = 값..
+    // @RequestParam
+    // query=string 값을 매개변수 받는 어노테이션
+    @GetMapping(value ="/paging")
+    public Page<Contact> getContactPaging(@RequestParam int page, @RequestParam int size){
+        // 기본적으로 key 정렬
+        // ORDER BY email DESC
+        // 정렬 매개변수 객체
+        Sort sort = Sort.by("email").descending();
+
+        // 페이지 매개변수 객체
+        // SQL : OFFSET page * size LIMIT size
+        // OFFSET : 어떤 기준점에 대한 거리
+        // OFFSET 10 : 10번째 까지 이후
+        // LIMIT 10 : 10건의 레코드
+        // OFFSET 10  LIMIT 10 : 앞쪽 10건은 패스하고 다음에 10건을 조회
+        PageRequest pageRequest = PageRequest.of(page,size,sort);
+        return repo.findAll(pageRequest);
+    }
+
+    // GET /contacts/paging/searchByName?page=0&size=10&name=hong
+    @GetMapping(value= "/paging/searchByName")
+    public Page<Contact> getContactSearch(@RequestParam int page, @RequestParam int size, @RequestParam String name){
+//        System.out.println(page);
+//        System.out.println(size);
+//        System.out.println(name);
+
+        Sort sort = Sort.by("email").descending();
+        PageRequest pageRequest = PageRequest.of(page,size,sort);
+        return repo.findByNameContaining(name,pageRequest);
+    }
+    @GetMapping(value= "/paging/search")
+    public Page<Contact> getCtSearch(@RequestParam int page, @RequestParam int size,  @RequestParam String query){
+
+        Sort sort = Sort.by("email").descending();
+        PageRequest pageRequest = PageRequest.of(page,size,sort);
+        return repo.findByNameContainsOrPhoneContains(query,query,pageRequest);
     }
 
     // HTTP 1.1 POST /contacts
@@ -68,7 +128,7 @@ public class ContactController {
 
         // 이메일 필수값 검증
         // 400: bad request
-        if(contact.getEmail() == null || contact.getEmail().isEmpty()) {
+        if (contact.getEmail() == null || contact.getEmail().isEmpty()) {
             // 응답 객체 생성
             Map<String, Object> res = new HashMap<>();
             res.put("data", null);
@@ -79,51 +139,76 @@ public class ContactController {
                     .body(res);
         }
 
-        // 이메일 형식 검증
-        // 400: bad request
 
-        // 이메일 중복 검증
-        // 409: conflict
+        if (contact.getEmail() != null && map.get(contact.getEmail()) != null) {
 
-        if(contact.getEmail() != null && map.get(contact.getEmail()) != null) {
-            // 맵에 해당 이메일이 있음
-            // 이미 있는 데이터를 클라이언트(브라우저) 보냈거나
-            // 클라이언트에서 중복 데이터를 보냈거나..
             Map<String, Object> res = new HashMap<>();
             res.put("data", null);
             res.put("message", "동일한 정보가 이미 존재합니다.");
-
             return ResponseEntity.status(HttpStatus.CONFLICT).body(res);
         }
 
         // 맵에 객체 추가
-        map.put(contact.getEmail(), contact);
+        // map.put(contact.getEmail(), contact);
 
-        // 응답 객체 생성
-        Map<String, Object> res = new HashMap<>();
-        res.put("data", contact);
-        res.put("message", "created");
+        repo.save(contact);
 
-        // HTTP Status Code: 201 Created
-        // 리소스가 정상적으로 생성되었음.
-        return ResponseEntity.status(HttpStatus.CREATED).body(res);
+
+        Optional<Contact> savedContact
+                = repo.findById(contact.getEmail());
+
+        //레코드가 존재 하는지 영부
+        if (savedContact.isPresent()) {
+            Map<String, Object> res = new HashMap<>();
+            res.put("data", contact);
+            res.put("message", "created");
+            return ResponseEntity.status(HttpStatus.CREATED).body(res);
+        }
+        return ResponseEntity.ok().build();
     }
 
 //    DELETE /contacts/{email}
 //            : Path(경로)Variable(변수)
 //    DELETE /contacts/abc@naver.com
 
-    @DeleteMapping(value ="/{email}")
+    @DeleteMapping(value = "/{email}")
 //    @PathVariable("email") : 경로 문자열{email}과 변수명 String email이 동일하면 안 써도 된다.
     public ResponseEntity removeContact(@PathVariable("email") String email) {
-        if(map.get(email) == null){
-//            404: NOT FOUND, 해당 경로에 리소스가 없다
-//            DELETE /contacts/kdkcom@naver.com
-//            Response Status Code : 404
+        if (!repo.findById(email).isPresent()) { // 해당 키(key)의 데이터가 없으면 , pk값으로 레코드로 1건 조회해서 없으면
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
 //      객체(리소스) 삭제
-        map.remove(email);
+//      map.remove(email);
+//      레코드(리소스-데이터베이스의 파일 일부분) 삭제
+        System.out.println(email);
+        repo.deleteById(email);
         return ResponseEntity.status(HttpStatus.OK).build();
+    }
+
+    // PUT(전체 수정), PATCH(일부 수정)
+    // PUT /hong@gmail.com
+    // {"name" : "길동", "phone":"010...."}
+    @PutMapping(value = "/{email}")
+    public ResponseEntity modifyContact (@PathVariable String email, @RequestBody Contact contact) {
+        // 1. 키 값으로 조회해옴
+        Optional<Contact> findedContact = repo.findById(email);
+        // 2. 해당 레코드가 있는지 확인
+        if (!findedContact.isPresent()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+        Contact toModifyContact = findedContact.get();
+        // 3. 조회해온 레코드에 필드값을 수정
+        // 매개변수에 name값이 있으면 수정
+        if(contact.getName() != null && contact.getName().isEmpty()){
+            toModifyContact.setName(contact.getName());
+        }
+        if(contact.getPhone() != null && contact.getPhone().isEmpty()){
+            toModifyContact.setPhone(contact.getPhone());
+        }
+
+        repo.save(toModifyContact);
+
+        //200 OK 처리
+        return ResponseEntity.ok().build();
     }
 }
